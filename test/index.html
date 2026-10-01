@@ -9,7 +9,7 @@
       /* Mimic a dark MyST page: the widget inherits the page's background, so
          the harness has to darken too or light-on-white looks broken here and
          only here. */
-      :root[data-theme="dark"] { color-scheme: dark; --page-bg: #16181d; --page-fg: #e8eaed; }
+      :root.dark { color-scheme: dark; --page-bg: #16181d; --page-fg: #e8eaed; }
       body {
         margin: 0;
         padding: 24px;
@@ -169,8 +169,11 @@
         location.hash = params.toString();
       }
       function applyDark() {
+        // Exactly what MyST and Curvenote do: a "dark" or "light" class on <html>, no
+        // data-theme. Setting data-theme as well once hid a bug where a page switched to
+        // light still showed dark widgets to readers whose system prefers dark.
         document.documentElement.classList.toggle("dark", darkToggle.checked);
-        document.documentElement.dataset.theme = darkToggle.checked ? "dark" : "light";
+        document.documentElement.classList.toggle("light", !darkToggle.checked);
       }
 
       picker.addEventListener("change", () => {

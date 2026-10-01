@@ -1,6 +1,6 @@
 <!doctype html>
 <notebook theme="air">
-  <title>Sampling and aliasing</title>
+  <title>Sampling, aliasing and spectral resolution</title>
   <script id="1" type="text/markdown">
     # Sampling, aliasing and spectral resolution
 
@@ -10,30 +10,26 @@
     also lie on. The bottom panel is the FFT of the samples: its axis only reaches
     ${tex`\pm f_s/2`}, and its points are ${tex`\Delta f = 1/T`} apart.
   </script>
-  <!-- One display cell per piece, so a page can embed only what it needs:
-       `cells: ["controlsView", "signalView", "spectrumView", "readoutView"]`. -->
   <script id="2" type="text/x-typescript">
     const controlsView = display(controlFields);
   </script>
-  <script id="2b" type="text/x-typescript">
+  <script id="3" type="text/x-typescript">
     const signalView = display(signalPanel);
   </script>
-  <script id="2c" type="text/x-typescript">
+  <script id="4" type="text/x-typescript">
     const spectrumView = display(spectrumPanel);
   </script>
-  <script id="2d" type="text/x-typescript">
+  <script id="5" type="text/x-typescript">
     const readoutView = display(readout);
   </script>
-
-  <script id="3" type="text/x-typescript">
+  <script id="6" type="text/x-typescript">
     import {sampleTimes, aliasFrequency, fft, fftfreq, fftshift, magnitude}
       from "https://curiousbeams.github.io/numerics-widgets/kit/index.js"
   </script>
-  <script id="3b" type="text/x-typescript">
+  <script id="7" type="text/x-typescript">
     import {controls, badge, SERIES} from "https://curiousbeams.github.io/em-widgets/kit/ui.js"
   </script>
-
-  <script id="4" type="text/x-typescript">
+  <script id="8" type="text/x-typescript">
     // The defaults are the book's own picture: sampling at 1 Hz for 10 s. Drag
     // f through 0.5 Hz (Nyquist), 1 Hz (a constant) and 1.1 Hz (looks like 0.1 Hz).
     const controlFields = controls(
@@ -45,16 +41,15 @@
       {columns: 3, minWidth: 170, compact: true}
     )
   </script>
-  <script id="5" type="text/x-typescript">
+  <script id="9" type="text/x-typescript">
     const settings = Generators.input(controlFields)
   </script>
-
-  <script id="6" type="text/x-typescript">
+  <script id="10" type="text/x-typescript">
     // A fixed phase, so that the samples are not all zero exactly at Nyquist
     // (sin(πn) = 0 for every n), which would hide what is going on there.
     const PHASE = 0.6
   </script>
-  <script id="7" type="text/x-typescript">
+  <script id="11" type="text/x-typescript">
     const sampled = (() => {
       const {f, fs, T} = settings;
       const t = sampleTimes(fs, T);
@@ -66,8 +61,7 @@
       return {f, fs, T, t, y, n, freq, amp, fa, aliased: f >= fs / 2};
     })()
   </script>
-
-  <script id="8" type="text/x-typescript">
+  <script id="12" type="text/x-typescript">
     const signalPanel = (() => {
       const {f, fs, T, t, y, fa, aliased} = sampled;
       // At most the first 10 s: past that, a few-Hz sine is a solid band at
@@ -96,8 +90,7 @@
       return htl.html`<div>${legend}${plot}</div>`;
     })()
   </script>
-
-  <script id="9" type="text/x-typescript">
+  <script id="13" type="text/x-typescript">
     const spectrumPanel = (() => {
       const {f, fs, freq, amp} = sampled;
       const nyq = fs / 2;
@@ -126,11 +119,10 @@
       });
     })()
   </script>
-
-  <script id="10" type="text/x-typescript">
+  <script id="14" type="text/x-typescript">
     const readout = badge()
   </script>
-  <script id="11" type="text/x-typescript">
+  <script id="15" type="text/x-typescript">
     // A named cell, so it is not displayed itself: it only writes into `readout`.
     const summary = (() => {
       const {f, fs, T, n, fa, aliased} = sampled;
