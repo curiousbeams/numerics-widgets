@@ -1,0 +1,16 @@
+{
+  "name": "numerics-widgets",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Interactive widgets for the TN23015 Computational Science textbook (Curious Beams Lab, TU Delft).",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "preview": "notebooks preview --root .",
+    "serve": "python3 tools/serve.py 8081"
+  },
+  "devDependencies": {
+    "@observablehq/notebook-kit": "2.5.6"
+  }
+}

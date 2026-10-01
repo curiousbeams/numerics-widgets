@@ -1,0 +1,128 @@
+<!doctype html>
+<notebook theme="air">
+  <title>FTCS stability</title>
+  <script id="1" type="text/markdown">
+    # When does FTCS blow up?
+
+    The FTCS update multiplies every Fourier mode of the error by an
+    amplification factor ${tex`G`} at each time step. If ${tex`|G| > 1`} for
+    any mode, that mode grows exponentially — starting from nothing more than
+    round-off. Drag the step ratio and the number of time steps.
+  </script>
+  <!-- `cells: ["controlsView", "panelsView", "readoutView"]` -->
+  <script id="2" type="text/x-typescript">
+    const controlsView = display(controlFields);
+  </script>
+  <script id="2b" type="text/x-typescript">
+    const panelsView = display(panels);
+  </script>
+  <script id="2c" type="text/x-typescript">
+    const readoutView = display(readout);
+  </script>
+
+  <script id="3" type="text/x-typescript">
+    import {ftcsDiffusionStep, ftcsWaveStep, amplification}
+      from "https://curiousbeams.github.io/numerics-widgets/kit/index.js"
+  </script>
+  <script id="3b" type="text/x-typescript">
+    import {controls, badge, SERIES} from "https://curiousbeams.github.io/em-widgets/kit/ui.js"
+  </script>
+
+  <script id="4" type="text/x-typescript">
+    const controlFields = controls(
+      Inputs.form({
+        equation: Inputs.radio(["diffusion", "wave"], {value: "diffusion", label: "equation"}),
+        ratio: Inputs.range([0.05, 0.8], {value: 0.45, step: 0.01, label: "r = DΔt/Δx², or C = cΔt/Δx"}),
+        steps: Inputs.range([0, 300], {value: 120, step: 1, label: "time steps"})
+      }),
+      {columns: 3, minWidth: 170, compact: true}
+    )
+  </script>
+  <script id="5" type="text/x-typescript">
+    const settings = Generators.input(controlFields)
+  </script>
+
+  <script id="6" type="text/x-typescript">
+    // 41 grid points, fixed ends. The initial profile is sin(pi x) plus a
+    // perturbation of 1e-6 from a fixed pseudo-random sequence, standing in for
+    // round-off: it is what an unstable mode grows out of.
+    const N = 41
+  </script>
+  <script id="6b" type="text/x-typescript">
+    const initial = (() => {
+      let seed = 12345;
+      const rand = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648) - 0.5;
+      return Float64Array.from({length: N}, (_, j) =>
+        j === 0 || j === N - 1 ? 0 : Math.sin((Math.PI * j) / (N - 1)) + 1e-6 * rand());
+    })()
+  </script>
+
+  <script id="7" type="text/x-typescript">
+    const run = (() => {
+      const {equation, ratio, steps} = settings;
+      let u = initial, v = new Float64Array(N);
+      for (let n = 0; n < steps; n++) {
+        if (equation === "diffusion") u = ftcsDiffusionStep(u, ratio);
+        else ({u, v} = ftcsWaveStep(u, v, ratio));
+      }
+      const thetas = Array.from({length: 201}, (_, i) => (Math.PI * i) / 200);
+      const G = thetas.map((t) => ({theta: t, G: amplification(t, ratio, equation)}));
+      const worst = Math.max(...G.map((d) => d.G));
+      const maxU = Math.max(...Array.from(u, Math.abs));
+      return {u, G, worst, maxU, equation, ratio, steps};
+    })()
+  </script>
+
+  <script id="8" type="text/x-typescript">
+    const panels = (() => {
+      const side = width >= 600;
+      const w = side ? Math.floor((width - 16) / 2) : width;
+      const xs = Array.from({length: N}, (_, j) => j / (N - 1));
+      const now = xs.map((x, j) => ({x, u: run.u[j]}));
+      const start = xs.map((x, j) => ({x, u: initial[j]}));
+      const profile = Plot.plot({
+        width: w, height: 240, marginLeft: 44, marginRight: 10, marginTop: 10, marginBottom: 34,
+        x: {domain: [0, 1], label: "position x / L", labelAnchor: "center"},
+        y: {domain: [-1.5, 1.5], label: run.equation === "diffusion" ? "temperature φ" : "displacement u", labelAnchor: "center"},
+        marks: [
+          Plot.ruleY([0], {strokeOpacity: 0.2}),
+          Plot.line(start, {x: "x", y: "u", stroke: "currentColor", strokeOpacity: 0.45, strokeDasharray: "4,3"}),
+          Plot.line(now, {x: "x", y: "u", stroke: SERIES[0], strokeWidth: 1.8, clip: true}),
+          Plot.dot(now, {x: "x", y: "u", r: 2, fill: SERIES[0], clip: true})
+        ]
+      });
+      const amp = Plot.plot({
+        width: w, height: 240, marginLeft: 44, marginRight: 10, marginTop: 10, marginBottom: 34,
+        x: {domain: [0, Math.PI], label: "mode k·Δx (zig-zag at π)", labelAnchor: "center",
+            ticks: [0, Math.PI / 2, Math.PI], tickFormat: (v) => (v === 0 ? "0" : v < 2 ? "π/2" : "π")},
+        y: {domain: [0, 2], label: "growth per step |G|", labelAnchor: "center"},
+        marks: [
+          Plot.rect([{y1: 1, y2: 2}], {x1: 0, x2: Math.PI, y1: "y1", y2: "y2", fill: "#c65c15", fillOpacity: 0.08}),
+          Plot.text([{t: "unstable: |G| > 1"}], {x: Math.PI * 0.03, y: 1.9, text: "t", textAnchor: "start", fontSize: 11, fillOpacity: 0.7}),
+          Plot.ruleY([1], {strokeOpacity: 0.5}),
+          Plot.line(run.G, {x: "theta", y: "G", stroke: SERIES[1], strokeWidth: 2, clip: true})
+        ]
+      });
+      return htl.html`<div style="display:flex; gap:16px; flex-wrap:wrap;">${profile}${amp}</div>`;
+    })()
+  </script>
+
+  <script id="9" type="text/x-typescript">
+    const readout = badge()
+  </script>
+  <script id="10" type="text/x-typescript">
+    const summary = (() => {
+      const {equation, ratio, steps, worst, maxU} = run;
+      const parts = [`after ${steps} steps, max |${equation === "diffusion" ? "φ" : "u"}| = ${maxU < 1e4 ? maxU.toFixed(3) : maxU.toExponential(1)}`];
+      if (equation === "diffusion") {
+        parts.push(ratio <= 0.5
+          ? `r = ${ratio.toFixed(2)} ≤ 1/2: every mode has |G| ≤ 1, stable`
+          : `r = ${ratio.toFixed(2)} > 1/2: the zig-zag mode grows ×${worst.toFixed(2)} per step`);
+      } else {
+        parts.push(`C = ${ratio.toFixed(2)}: |G| > 1 for every mode (up to ×${worst.toFixed(2)} per step), unstable for any timestep`);
+      }
+      readout.textContent = parts.join(" · ");
+      return readout.textContent;
+    })()
+  </script>
+</notebook>

@@ -1,0 +1,168 @@
+<!doctype html>
+<notebook theme="air">
+  <title>Finite-difference error</title>
+  <script id="1" type="text/markdown">
+    # How small should the step be?
+
+    The forward, backward and centre differences of
+    ${tex`f(x) = 1 + \tfrac12\tanh 2x`} at a point ${tex`x_0`}, for a step ${tex`h`}.
+    The left panel shows the three secants against the true tangent; the right
+    panel shows their errors for every ${tex`h`} at once. Shrinking ${tex`h`}
+    helps only until round-off takes over — and in single precision that happens
+    much sooner.
+  </script>
+  <!-- `cells: ["controlsView", "secantView", "errorView", "readoutView"]` -->
+  <script id="2" type="text/x-typescript">
+    const controlsView = display(controlFields);
+  </script>
+  <script id="2b" type="text/x-typescript">
+    const secantView = display(secantPanel);
+  </script>
+  <script id="2c" type="text/x-typescript">
+    const errorView = display(errorPanel);
+  </script>
+  <script id="2d" type="text/x-typescript">
+    const readoutView = display(readout);
+  </script>
+
+  <script id="3" type="text/x-typescript">
+    import {differences, geomspace, machineEpsilon}
+      from "https://curiousbeams.github.io/numerics-widgets/kit/index.js"
+  </script>
+  <script id="3b" type="text/x-typescript">
+    import {controls, badge, SERIES} from "https://curiousbeams.github.io/em-widgets/kit/ui.js"
+  </script>
+
+  <script id="4" type="text/x-typescript">
+    const controlFields = controls(
+      Inputs.form({
+        logh: Inputs.range([-12, 0], {value: -0.3, step: 0.1, label: "step log₁₀ h"}),
+        x0: Inputs.range([-1.5, 1.5], {value: 0.4, step: 0.05, label: "point x₀"}),
+        precision: Inputs.radio(["64-bit", "32-bit"], {value: "64-bit", label: "precision"})
+      }),
+      {columns: 3, minWidth: 170, compact: true}
+    )
+  </script>
+  <script id="5" type="text/x-typescript">
+    const settings = Generators.input(controlFields)
+  </script>
+
+  <script id="6" type="text/x-typescript">
+    // The book's own example function and its derivative.
+    const f = (x) => 1 + 0.5 * Math.tanh(2 * x)
+  </script>
+  <script id="6b" type="text/x-typescript">
+    const fprime = (x) => 1 / Math.cosh(2 * x) ** 2
+  </script>
+  <script id="6c" type="text/x-typescript">
+    const METHODS = [
+      {key: "forward", label: "forward", colour: SERIES[0]},
+      {key: "backward", label: "backward", colour: SERIES[1]},
+      {key: "centre", label: "centre", colour: SERIES[2]}
+    ]
+  </script>
+
+  <script id="7" type="text/x-typescript">
+    // Errors over the whole range of h, for the chosen point and precision.
+    // An exact zero (it happens) is lifted to the bottom of the axis so that
+    // the log scale can draw it.
+    const sweep = (() => {
+      const single = settings.precision === "32-bit";
+      const exact = fprime(settings.x0);
+      const hs = geomspace(1e-12, 1, 241);
+      const rows = [];
+      for (const h of hs) {
+        const d = differences(f, settings.x0, h, {single});
+        for (const m of METHODS) rows.push({h, method: m.label, error: Math.max(Math.abs(d[m.key] - exact), 1e-17)});
+      }
+      const h = 10 ** settings.logh;
+      const d = differences(f, settings.x0, h, {single});
+      const current = Object.fromEntries(METHODS.map((m) => [m.key, Math.abs(d[m.key] - exact)]));
+      const centre = rows.filter((r) => r.method === "centre");
+      const best = centre.reduce((a, b) => (b.error < a.error ? b : a));
+      return {rows, h, d, current, exact, best, single, eps: machineEpsilon({single})};
+    })()
+  </script>
+
+  <script id="8" type="text/x-typescript">
+    const secantPanel = (() => {
+      const {x0} = settings;
+      const {h, d} = sweep;
+      const lo = x0 - 1.1, hi = x0 + 1.1;
+      const xs = Array.from({length: 300}, (_, i) => lo + ((hi - lo) * i) / 299);
+      // Each secant drawn through its own two points and extended across the panel.
+      const line = (xa, slope) => [lo, hi].map((x) => ({x, y: f(xa) + slope * (x - xa)}));
+      const secants = [
+        {m: METHODS[0], pts: [x0, x0 + h], data: line(x0, d.forward)},
+        {m: METHODS[1], pts: [x0 - h, x0], data: line(x0, d.backward)},
+        {m: METHODS[2], pts: [x0 - h / 2, x0 + h / 2], data: line(x0 - h / 2, d.centre)}
+      ];
+      const legend = htl.html`<div style="font-size:12px; display:flex; gap:14px; flex-wrap:wrap;
+        color:var(--theme-foreground-muted, inherit); margin:0 0 2px;">
+        <span><b style="opacity:.6">- - -</b> tangent</span>
+        ${METHODS.map((m) => htl.html`<span><b style="color:${m.colour}">——</b> ${m.label}</span>`)}
+      </div>`;
+      const plot = Plot.plot({
+        width, height: 200, marginLeft: 50, marginRight: 10, marginTop: 8, marginBottom: 34,
+        x: {domain: [lo, hi], label: "x", labelAnchor: "center"},
+        y: {domain: [0.35, 1.65], label: "f(x)", labelAnchor: "center", ticks: 4},
+        marks: [
+          Plot.line(xs.map((x) => ({x, y: f(x)})), {x: "x", y: "y", stroke: "currentColor", strokeOpacity: 0.55, strokeWidth: 2}),
+          Plot.line(line(x0, fprime(x0)), {x: "x", y: "y", stroke: "currentColor", strokeOpacity: 0.6, strokeDasharray: "5,4"}),
+          ...secants.flatMap(({m, pts, data}) => [
+            Plot.line(data, {x: "x", y: "y", stroke: m.colour, strokeWidth: 1.5}),
+            Plot.dot(pts.map((x) => ({x, y: f(x)})), {x: "x", y: "y", r: 3.5, fill: m.colour})
+          ]),
+          Plot.dot([{x: x0, y: f(x0)}], {x: "x", y: "y", r: 4, stroke: "currentColor", fill: "none"})
+        ]
+      });
+      return htl.html`<div>${legend}${plot}</div>`;
+    })()
+  </script>
+
+  <script id="9" type="text/x-typescript">
+    const errorPanel = (() => {
+      const {rows, h, eps} = sweep;
+      // Guide lines through the curves at h = 0.1, plus the round-off estimate eps/h.
+      const at = (method) => rows.find((r) => r.method === method && Math.abs(Math.log10(r.h) + 1) < 0.03)?.error ?? 1e-3;
+      const hs = [1e-12, 1];
+      const guide = (c, p) => hs.map((x) => ({h: x, e: c * (x / 0.1) ** p}));
+      return Plot.plot({
+        width, height: 260, marginLeft: 50, marginRight: 14, marginTop: 10, marginBottom: 36,
+        x: {type: "log", domain: [1e-12, 1], label: "step h", labelAnchor: "center", ticks: 7, tickFormat: (v) => `1e${Math.round(Math.log10(v))}`},
+        y: {type: "log", domain: [1e-17, 10], label: "error |numerical − exact|", labelAnchor: "center", ticks: 6, tickFormat: (v) => `1e${Math.round(Math.log10(v))}`},
+        color: {domain: METHODS.map((m) => m.label), range: METHODS.map((m) => m.colour)},
+        marks: [
+          Plot.line(guide(at("forward"), 1), {x: "h", y: "e", stroke: "currentColor", strokeOpacity: 0.3, strokeDasharray: "3,3", clip: true}),
+          Plot.line(guide(at("centre"), 2), {x: "h", y: "e", stroke: "currentColor", strokeOpacity: 0.3, strokeDasharray: "3,3", clip: true}),
+          Plot.line(hs.map((x) => ({h: x, e: eps / x})), {x: "h", y: "e", stroke: "currentColor", strokeOpacity: 0.3, strokeDasharray: "1,3", clip: true}),
+          Plot.text([{h: 1e-3, e: at("forward") * 1e-2 * 4, t: "∝ h"}, {h: 1e-3, e: at("centre") * 1e-4 / 6, t: "∝ h²"}],
+            {x: "h", y: "e", text: "t", fontSize: 11, fillOpacity: 0.6, textAnchor: "start"}),
+          Plot.text([{h: 1e-11, e: eps / 1e-11 * 2.5, t: "round-off ∝ ε/h"}],
+            {x: "h", y: "e", text: "t", fontSize: 11, fillOpacity: 0.6, textAnchor: "start"}),
+          Plot.line(rows, {x: "h", y: "error", stroke: "method", strokeWidth: 1.6}),
+          Plot.ruleX([h], {stroke: "currentColor", strokeOpacity: 0.5}),
+          Plot.dot(METHODS.map((m) => ({h, e: Math.max(sweep.current[m.key], 1e-17), method: m.label})),
+            {x: "h", y: "e", fill: "method", r: 4})
+        ]
+      });
+    })()
+  </script>
+
+  <script id="10" type="text/x-typescript">
+    const readout = badge()
+  </script>
+  <script id="11" type="text/x-typescript">
+    // A named cell, so it is not displayed itself: it only writes into `readout`.
+    const summary = (() => {
+      const {h, current, best, single} = sweep;
+      const fmt = (v) => v.toExponential(1);
+      readout.textContent = [
+        `h = ${fmt(h)}`,
+        `errors: forward ${fmt(current.forward)}, backward ${fmt(current.backward)}, centre ${fmt(current.centre)}`,
+        `centre is most accurate at h ≈ ${fmt(best.h)} (error ${fmt(best.error)}) in ${single ? "32" : "64"}-bit`
+      ].join(" · ");
+      return readout.textContent;
+    })()
+  </script>
+</notebook>

@@ -1,0 +1,150 @@
+<!doctype html>
+<notebook theme="air">
+  <title>Sampling and aliasing</title>
+  <script id="1" type="text/markdown">
+    # Sampling, aliasing and spectral resolution
+
+    A sine wave of frequency ${tex`f`} is sampled at a rate ${tex`f_s`} for a time
+    ${tex`T`}. The top panel shows the samples, and — once ${tex`f`} passes the
+    Nyquist frequency ${tex`f_s/2`} — the slower sine that the very same samples
+    also lie on. The bottom panel is the FFT of the samples: its axis only reaches
+    ${tex`\pm f_s/2`}, and its points are ${tex`\Delta f = 1/T`} apart.
+  </script>
+  <!-- One display cell per piece, so a page can embed only what it needs:
+       `cells: ["controlsView", "signalView", "spectrumView", "readoutView"]`. -->
+  <script id="2" type="text/x-typescript">
+    const controlsView = display(controlFields);
+  </script>
+  <script id="2b" type="text/x-typescript">
+    const signalView = display(signalPanel);
+  </script>
+  <script id="2c" type="text/x-typescript">
+    const spectrumView = display(spectrumPanel);
+  </script>
+  <script id="2d" type="text/x-typescript">
+    const readoutView = display(readout);
+  </script>
+
+  <script id="3" type="text/x-typescript">
+    import {sampleTimes, aliasFrequency, fft, fftfreq, fftshift, magnitude}
+      from "https://curiousbeams.github.io/numerics-widgets/kit/index.js"
+  </script>
+  <script id="3b" type="text/x-typescript">
+    import {controls, badge, SERIES} from "https://curiousbeams.github.io/em-widgets/kit/ui.js"
+  </script>
+
+  <script id="4" type="text/x-typescript">
+    // The defaults are the book's own picture: sampling at 1 Hz for 10 s. Drag
+    // f through 0.5 Hz (Nyquist), 1 Hz (a constant) and 1.1 Hz (looks like 0.1 Hz).
+    const controlFields = controls(
+      Inputs.form({
+        f: Inputs.range([0, 3], {value: 0.3, step: 0.01, label: "signal f (Hz)"}),
+        fs: Inputs.range([0.5, 5], {value: 1, step: 0.1, label: "sampling fₛ (Hz)"}),
+        T: Inputs.range([2, 40], {value: 10, step: 1, label: "length T (s)"})
+      }),
+      {columns: 3, minWidth: 170, compact: true}
+    )
+  </script>
+  <script id="5" type="text/x-typescript">
+    const settings = Generators.input(controlFields)
+  </script>
+
+  <script id="6" type="text/x-typescript">
+    // A fixed phase, so that the samples are not all zero exactly at Nyquist
+    // (sin(πn) = 0 for every n), which would hide what is going on there.
+    const PHASE = 0.6
+  </script>
+  <script id="7" type="text/x-typescript">
+    const sampled = (() => {
+      const {f, fs, T} = settings;
+      const t = sampleTimes(fs, T);
+      const y = Float64Array.from(t, (ti) => Math.sin(2 * Math.PI * f * ti + PHASE));
+      const n = t.length;
+      const freq = fftshift(fftfreq(n, 1 / fs));
+      const amp = fftshift(magnitude(fft(y))).map((a) => a / n);
+      const fa = aliasFrequency(f, fs);
+      return {f, fs, T, t, y, n, freq, amp, fa, aliased: f >= fs / 2};
+    })()
+  </script>
+
+  <script id="8" type="text/x-typescript">
+    const signalPanel = (() => {
+      const {f, fs, T, t, y, fa, aliased} = sampled;
+      // At most the first 10 s: past that, a few-Hz sine is a solid band at
+      // prose width, and the trace length matters for the spectrum, not here.
+      const tmax = Math.min(T, 10);
+      const dense = Array.from({length: 1200}, (_, i) => (i / 1199) * tmax);
+      const curve = (freq) => dense.map((ti) => ({t: ti, y: Math.sin(2 * Math.PI * freq * ti + PHASE)}));
+      const points = Array.from(t, (ti, i) => ({t: ti, y: y[i]})).filter((d) => d.t <= tmax + 1e-9);
+      const legend = htl.html`<div style="font-size:12px; display:flex; gap:16px; flex-wrap:wrap;
+        color:var(--theme-foreground-muted, inherit); margin:0 0 2px;">
+        <span><b style="opacity:.45">——</b> the signal, ${f.toFixed(2)} Hz</span>
+        <span><b style="color:${SERIES[0]}">●</b> samples at ${fs.toFixed(1)} Hz</span>
+        ${aliased ? htl.html`<span><b style="color:${SERIES[1]}">- - -</b> what the samples show, ${Math.abs(fa).toFixed(2)} Hz</span>` : ""}
+      </div>`;
+      const plot = Plot.plot({
+        width, height: 190, marginLeft: 40, marginRight: 10, marginTop: 10, marginBottom: 36,
+        x: {domain: [0, tmax], label: T > 10 ? "time (s), first 10 s" : "time (s)", labelAnchor: "center"},
+        y: {domain: [-1.15, 1.15], label: "signal", labelAnchor: "center", ticks: [-1, 0, 1]},
+        marks: [
+          Plot.ruleY([0], {strokeOpacity: 0.15}),
+          Plot.line(curve(f), {x: "t", y: "y", stroke: "currentColor", strokeOpacity: 0.4, strokeWidth: 1}),
+          aliased ? Plot.line(curve(fa), {x: "t", y: "y", stroke: SERIES[1], strokeWidth: 1.8, strokeDasharray: "5,4"}) : null,
+          Plot.dot(points, {x: "t", y: "y", r: 3.5, fill: SERIES[0]})
+        ]
+      });
+      return htl.html`<div>${legend}${plot}</div>`;
+    })()
+  </script>
+
+  <script id="9" type="text/x-typescript">
+    const spectrumPanel = (() => {
+      const {f, fs, freq, amp} = sampled;
+      const nyq = fs / 2;
+      // The axis widens to include the true frequency, so that when it lies
+      // beyond Nyquist you can see where it is and where its peak lands instead.
+      const xmax = Math.max(nyq, f) * 1.08;
+      const bins = Array.from(freq, (fk, k) => ({f: fk, a: amp[k]}));
+      return Plot.plot({
+        width, height: 190, marginLeft: 40, marginRight: 10, marginTop: 14, marginBottom: 36,
+        x: {domain: [-xmax, xmax], label: "frequency (Hz)", labelAnchor: "center"},
+        y: {domain: [0, 0.62], label: "|FFT| / N", labelAnchor: "center", ticks: 3},
+        marks: [
+          Plot.rect([{x1: nyq, x2: xmax}, {x1: -xmax, x2: -nyq}],
+            {x1: "x1", x2: "x2", y1: 0, y2: 0.62, fill: "currentColor", fillOpacity: 0.07}),
+          Plot.ruleX([-nyq, nyq], {strokeOpacity: 0.35}),
+          Plot.text([nyq], {x: (d) => d, y: 0.6, text: () => "fₙ", textAnchor: "end", dx: -4, fontSize: 11, fillOpacity: 0.7}),
+          Plot.text([-nyq], {x: (d) => d, y: 0.6, text: () => "−fₙ", textAnchor: "start", dx: 4, fontSize: 11, fillOpacity: 0.7}),
+          f > 0 ? Plot.ruleX([f, -f], {stroke: "currentColor", strokeOpacity: 0.45, strokeDasharray: "4,3"}) : null,
+          // Only labelled when it is somewhere else than the peak it produces.
+          f >= nyq ? Plot.text([f], {x: (d) => d, y: 0.6, text: () => "f", textAnchor: "end", dx: -4, fontSize: 11, fillOpacity: 0.7}) : null,
+          f >= nyq ? Plot.text([-f], {x: (d) => d, y: 0.6, text: () => "−f", textAnchor: "start", dx: 4, fontSize: 11, fillOpacity: 0.7}) : null,
+          Plot.ruleY([0], {strokeOpacity: 0.3}),
+          Plot.ruleX(bins, {x: "f", y1: 0, y2: "a", stroke: SERIES[0], strokeWidth: 1.4}),
+          Plot.dot(bins, {x: "f", y: "a", r: 2.5, fill: SERIES[0]})
+        ]
+      });
+    })()
+  </script>
+
+  <script id="10" type="text/x-typescript">
+    const readout = badge()
+  </script>
+  <script id="11" type="text/x-typescript">
+    // A named cell, so it is not displayed itself: it only writes into `readout`.
+    const summary = (() => {
+      const {f, fs, T, n, fa, aliased} = sampled;
+      const df = 1 / T;
+      const parts = [
+        `Nyquist fₙ = fₛ/2 = ${(fs / 2).toFixed(2)} Hz`,
+        `resolution Δf = 1/T = ${df.toFixed(3)} Hz`,
+        `${n} samples`
+      ];
+      if (aliased) parts.push(`a ${f.toFixed(2)} Hz signal shows up at ${Math.abs(fa).toFixed(2)} Hz`);
+      const bins = Math.abs(fa) / df;
+      if (Math.abs(bins - Math.round(bins)) > 1e-6) parts.push("f falls between the Δf grid points, so its peak leaks into its neighbours");
+      readout.textContent = parts.join(" · ");
+      return readout.textContent;
+    })()
+  </script>
+</notebook>

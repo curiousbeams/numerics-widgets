@@ -1,0 +1,155 @@
+<!doctype html>
+<notebook theme="air">
+  <title>Bisection and Newton</title>
+  <script id="1" type="text/markdown">
+    # Bisection versus Newton's method
+
+    Bisection halves a bracket around the root at every step: slow, but it
+    cannot fail. Newton follows the tangent: very fast near a root, but where
+    it goes depends entirely on where it starts.
+  </script>
+  <!-- `cells: ["controlsView", "panelsView", "readoutView"]` -->
+  <script id="2" type="text/x-typescript">
+    const controlsView = display(controlFields);
+  </script>
+  <script id="2b" type="text/x-typescript">
+    const panelsView = display(panels);
+  </script>
+  <script id="2c" type="text/x-typescript">
+    const readoutView = display(readout);
+  </script>
+
+  <script id="3" type="text/x-typescript">
+    import {bisectionSteps, newtonSteps} from "https://curiousbeams.github.io/numerics-widgets/kit/index.js"
+  </script>
+  <script id="3b" type="text/x-typescript">
+    import {controls, badge, SERIES} from "https://curiousbeams.github.io/em-widgets/kit/ui.js"
+  </script>
+
+  <script id="4" type="text/x-typescript">
+    // Each case comes with a bracket for bisection, its roots (to measure
+    // errors against), and a view that frames the interesting part.
+    const CASES = {
+      "Wien: 5e⁻ˣ + x − 5": {
+        f: (x) => 5 * Math.exp(-x) + x - 5, fp: (x) => -5 * Math.exp(-x) + 1,
+        bracket: [2, 8], roots: [0, 4.965114231744276], view: [-0.5, 8.5], y: [-4.6, 4]
+      },
+      "x³ − 2x + 2": {
+        f: (x) => x ** 3 - 2 * x + 2, fp: (x) => 3 * x ** 2 - 2,
+        bracket: [-3, 0], roots: [-1.7692923542386314], view: [-3, 3], y: [-8, 8]
+      },
+      "arctan x": {
+        f: Math.atan, fp: (x) => 1 / (1 + x * x),
+        bracket: [-2, 3], roots: [0], view: [-4, 4], y: [-1.7, 1.7]
+      }
+    }
+  </script>
+  <script id="5" type="text/x-typescript">
+    const controlFields = controls(
+      Inputs.form({
+        fn: Inputs.select(Object.keys(CASES), {label: "function"}),
+        x0: Inputs.range([-3, 8], {value: 3, step: 0.05, label: "Newton start x₀"}),
+        steps: Inputs.range([0, 20], {value: 3, step: 1, label: "steps"})
+      }),
+      {columns: 3, minWidth: 170, compact: true}
+    )
+  </script>
+  <script id="6" type="text/x-typescript">
+    const settings = Generators.input(controlFields)
+  </script>
+
+  <script id="7" type="text/x-typescript">
+    const run = (() => {
+      const c = CASES[settings.fn];
+      const n = settings.steps;
+      const bis = bisectionSteps(c.f, c.bracket[0], c.bracket[1], Math.max(n, 1));
+      const newt = newtonSteps(c.f, c.fp, settings.x0, n);
+      const dist = (x) => Math.min(...c.roots.map((r) => Math.abs(x - r)));
+      const nearest = (x) => c.roots.reduce((a, r) => (Math.abs(x - r) < Math.abs(x - a) ? r : a));
+      const errors = [
+        // Bisection's error is what it can guarantee: half the current bracket.
+        ...bis.slice(0, n).map((s, i) => ({i: i + 1, method: "bisection", e: Math.max((s.b - s.a) / 4, 1e-16)})),
+        ...newt.map((x, i) => ({i, method: "Newton", e: Math.max(dist(x), 1e-16)}))
+      ];
+      return {c, n, bis: bis.slice(0, n), newt, errors, dist, nearest};
+    })()
+  </script>
+
+  <script id="8" type="text/x-typescript">
+    const panels = (() => {
+      const {c, bis, newt} = run;
+      const side = width >= 600;
+      const w = side ? Math.floor((width - 16) / 2) : width;
+      const [lo, hi] = c.view;
+      const [ylo, yhi] = c.y;
+      const xs = Array.from({length: 400}, (_, i) => lo + ((hi - lo) * i) / 399);
+      // Newton: tangent from (x_i, f(x_i)) down to the axis at x_{i+1}, then up to the curve.
+      const tangents = newt.slice(0, -1).flatMap((x, i) => [
+        {x, y: c.f(x), k: i}, {x: newt[i + 1], y: 0, k: i}
+      ]);
+      const verticals = newt.slice(1).flatMap((x, i) => [{x, y: 0, k: i}, {x, y: c.f(x), k: i}]);
+      // Bisection: one bar per step, stacked below the axis.
+      const band = (yhi - ylo) * 0.035;
+      const bars = bis.map((s, i) => ({x1: s.a, x2: s.b, y: ylo + band * (bis.length - i), mid: s.mid}));
+      const curve = Plot.plot({
+        width: w, height: 270, marginLeft: 40, marginRight: 10, marginTop: 10, marginBottom: 34,
+        x: {domain: [lo, hi], label: "x", labelAnchor: "center"},
+        y: {domain: [ylo, yhi], label: "f(x)", labelAnchor: "center"},
+        marks: [
+          Plot.ruleY([0], {strokeOpacity: 0.4}),
+          Plot.line(xs.map((x) => ({x, y: c.f(x)})), {x: "x", y: "y", stroke: "currentColor", strokeWidth: 2}),
+          Plot.link(bars, {x1: "x1", x2: "x2", y1: "y", y2: "y", stroke: SERIES[0], strokeWidth: 2.5, clip: true}),
+          Plot.dot(bars, {x: "mid", y: "y", r: 2.5, fill: SERIES[0], clip: true}),
+          Plot.line(tangents, {x: "x", y: "y", z: "k", stroke: SERIES[1], strokeWidth: 1.4, clip: true}),
+          Plot.line(verticals, {x: "x", y: "y", z: "k", stroke: SERIES[1], strokeOpacity: 0.5, strokeDasharray: "2,2", clip: true}),
+          Plot.dot(newt.map((x, i) => ({x, y: c.f(x), i})), {x: "x", y: "y", r: 3.5, fill: SERIES[1], clip: true}),
+          Plot.text(newt.slice(0, 3).map((x, i) => ({x, y: c.f(x), t: `x${"₀₁₂₃₄₅"[i]}`})),
+            {x: "x", y: "y", text: "t", dy: -10, fontSize: 11, fill: SERIES[1], clip: true})
+        ]
+      });
+      const conv = Plot.plot({
+        width: w, height: 270, marginLeft: 50, marginRight: 10, marginTop: 10, marginBottom: 34,
+        x: {domain: [0, 20], label: "step", labelAnchor: "center"},
+        y: {type: "log", domain: [1e-16, 1e2], label: "error", labelAnchor: "center", ticks: 6,
+            tickFormat: (v) => `1e${Math.round(Math.log10(v))}`},
+        color: {domain: ["bisection", "Newton"], range: [SERIES[0], SERIES[1]]},
+        marks: [
+          Plot.line(run.errors, {x: "i", y: "e", stroke: "method", strokeWidth: 1.6, clip: true}),
+          Plot.dot(run.errors, {x: "i", y: "e", fill: "method", r: 3, clip: true})
+        ]
+      });
+      const legend = htl.html`<div style="font-size:12px; display:flex; gap:14px; flex-wrap:wrap;
+        color:var(--theme-foreground-muted, inherit); margin:0 0 2px;">
+        <span><b style="color:${SERIES[0]}">——</b> bisection brackets (one per step, below the axis)</span>
+        <span><b style="color:${SERIES[1]}">——</b> Newton tangents</span>
+        <span>right: half the bisection bracket, and Newton's distance to the nearest root</span>
+      </div>`;
+      return htl.html`<div>${legend}<div style="display:flex; gap:16px; flex-wrap:wrap;">${curve}${conv}</div></div>`;
+    })()
+  </script>
+
+  <script id="9" type="text/x-typescript">
+    const readout = badge()
+  </script>
+  <script id="10" type="text/x-typescript">
+    const summary = (() => {
+      const {c, n, bis, newt, dist, nearest} = run;
+      const parts = [];
+      if (n > 0) {
+        const last = bis[n - 1];
+        parts.push(`bisection: root within ±${((last.b - last.a) / 4).toExponential(1)} after ${n} steps`);
+      }
+      const x = newt[newt.length - 1];
+      const stalled = newt.length < n + 1;
+      let fate;
+      if (stalled) fate = "stopped: f′(x) = 0 or the step left the number line";
+      else if (dist(x) < 1e-8) fate = `converged to the root at ${nearest(x).toPrecision(6)}`;
+      else if (n >= 4 && Math.abs(newt[n] - newt[n - 2]) < 1e-6 * (1 + Math.abs(newt[n]))) fate = "stuck in a cycle";
+      else if (Math.abs(x) > 1e3) fate = "running away";
+      else fate = `currently at x = ${x.toPrecision(6)}`;
+      parts.push(`Newton from x₀ = ${settings.x0}: ${fate}`);
+      readout.textContent = parts.join(" · ");
+      return readout.textContent;
+    })()
+  </script>
+</notebook>

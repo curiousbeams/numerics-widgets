@@ -1,0 +1,117 @@
+<!doctype html>
+<notebook theme="air">
+  <title>Euler, RK2 and RK4</title>
+  <script id="1" type="text/markdown">
+    # Euler, RK2 and RK4 on a harmonic oscillator
+
+    A mass on a spring, ${tex`\ddot x = -x`}, started at ${tex`x = 0`}, ${tex`v = 1`}.
+    The exact motion goes round the unit circle in phase space for ever, with
+    constant energy. Each method takes steps of ${tex`\Delta t`}; the right
+    panel shows how far its energy has drifted.
+  </script>
+  <!-- `cells: ["controlsView", "panelsView", "readoutView"]` -->
+  <script id="2" type="text/x-typescript">
+    const controlsView = display(controlFields);
+  </script>
+  <script id="2b" type="text/x-typescript">
+    const panelsView = display(panels);
+  </script>
+  <script id="2c" type="text/x-typescript">
+    const readoutView = display(readout);
+  </script>
+
+  <script id="3" type="text/x-typescript">
+    import {integrate, STEPPERS} from "https://curiousbeams.github.io/numerics-widgets/kit/index.js"
+  </script>
+  <script id="3b" type="text/x-typescript">
+    import {controls, badge, SERIES} from "https://curiousbeams.github.io/em-widgets/kit/ui.js"
+  </script>
+
+  <script id="4" type="text/x-typescript">
+    const controlFields = controls(
+      Inputs.form({
+        dt: Inputs.range([0.01, 1], {value: 0.2, step: 0.01, label: "timestep Δt"}),
+        periods: Inputs.range([1, 20], {value: 5, step: 1, label: "oscillations"}),
+        methods: Inputs.checkbox(["Euler", "RK2", "RK4"], {value: ["Euler", "RK2", "RK4"], label: "methods"})
+      }),
+      {columns: 3, minWidth: 170, compact: true}
+    )
+  </script>
+  <script id="5" type="text/x-typescript">
+    const settings = Generators.input(controlFields)
+  </script>
+  <script id="6" type="text/x-typescript">
+    const COLOURS = {Euler: SERIES[0], RK2: SERIES[1], RK4: SERIES[2]}
+  </script>
+
+  <script id="7" type="text/x-typescript">
+    const runs = (() => {
+      const {dt, periods, methods} = settings;
+      const n = Math.max(1, Math.round((periods * 2 * Math.PI) / dt));
+      const f = (y) => [y[1], -y[0]];
+      return methods.map((name) => {
+        const {t, y} = integrate(f, [0, 1], 0, dt, n, STEPPERS[name]);
+        const rows = Array.from(t, (ti, i) => ({
+          name, t: ti / (2 * Math.PI), x: y[i][0], v: y[i][1],
+          // E0 = 1/2, so |E/E0 - 1| = |x^2 + v^2 - 1|; lifted off zero for the log axis
+          dE: Math.max(Math.abs(y[i][0] ** 2 + y[i][1] ** 2 - 1), 1e-16)
+        }));
+        return {name, rows, final: rows[rows.length - 1]};
+      });
+    })()
+  </script>
+
+  <script id="8" type="text/x-typescript">
+    const panels = (() => {
+      const {dt, periods} = settings;
+      const side = width >= 600;
+      const w = side ? Math.floor((width - 16) / 2) : width;
+      const all = runs.flatMap((r) => r.rows);
+      const showDots = runs.length && runs[0].rows.length <= 160;
+      const circle = Array.from({length: 201}, (_, i) => ({x: Math.cos((2 * Math.PI * i) / 200), v: Math.sin((2 * Math.PI * i) / 200)}));
+      const legend = htl.html`<div style="font-size:12px; display:flex; gap:14px; flex-wrap:wrap;
+        color:var(--theme-foreground-muted, inherit); margin:0 0 2px;">
+        <span><b style="opacity:.6">- - -</b> exact</span>
+        ${runs.map((r) => htl.html`<span><b style="color:${COLOURS[r.name]}">——</b> ${r.name}</span>`)}
+      </div>`;
+      const phase = Plot.plot({
+        width: w, height: Math.min(w, 320), marginLeft: 40, marginRight: 10, marginTop: 10, marginBottom: 34,
+        x: {domain: [-2.2, 2.2], label: "position x", labelAnchor: "center"},
+        y: {domain: [-2.2, 2.2], label: "velocity v", labelAnchor: "center"},
+        color: {domain: Object.keys(COLOURS), range: Object.values(COLOURS)},
+        marks: [
+          Plot.line(circle, {x: "x", y: "v", stroke: "currentColor", strokeOpacity: 0.5, strokeDasharray: "4,3"}),
+          Plot.line(all, {x: "x", y: "v", z: "name", stroke: "name", strokeWidth: 1.4, clip: true}),
+          showDots ? Plot.dot(all, {x: "x", y: "v", fill: "name", r: 2, clip: true}) : null
+        ]
+      });
+      const energy = Plot.plot({
+        width: w, height: Math.min(w, 320), marginLeft: 50, marginRight: 10, marginTop: 10, marginBottom: 34,
+        x: {domain: [0, periods], label: "time (oscillations)", labelAnchor: "center"},
+        y: {type: "log", domain: [1e-14, 1e4], label: "energy error |E/E₀ − 1|", labelAnchor: "center", ticks: 6,
+            tickFormat: (v) => `1e${Math.round(Math.log10(v))}`},
+        color: {domain: Object.keys(COLOURS), range: Object.values(COLOURS)},
+        marks: [
+          Plot.line(all.filter((d) => d.t > 0), {x: "t", y: "dE", z: "name", stroke: "name", strokeWidth: 1.4, clip: true})
+        ]
+      });
+      return htl.html`<div>${legend}<div style="display:flex; gap:16px; flex-wrap:wrap;">${phase}${energy}</div></div>`;
+    })()
+  </script>
+
+  <script id="9" type="text/x-typescript">
+    const readout = badge()
+  </script>
+  <script id="10" type="text/x-typescript">
+    const summary = (() => {
+      const {dt, periods} = settings;
+      const parts = [`Δt = ${dt.toFixed(2)}: ${(2 * Math.PI / dt).toFixed(0)} steps per oscillation`];
+      if (runs.length) {
+        parts.push(`energy off after ${periods} oscillation${periods > 1 ? "s" : ""} by ` +
+          runs.map((r) => `${r.name} ${r.final.dE.toExponential(1)}`).join(", "));
+      }
+      readout.textContent = parts.join(" · ");
+      return readout.textContent;
+    })()
+  </script>
+</notebook>

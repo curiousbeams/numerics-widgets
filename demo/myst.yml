@@ -1,0 +1,10 @@
+# A throwaway MyST project for checking the {anywidget} path end to end against
+# the local checkout. Serve the repo on :8081 first (python3 -m http.server 8081),
+# then `myst build --html` here and serve _build/html.
+version: 1
+project:
+  title: numerics-widgets demo
+  toc:
+    - file: index.md
+site:
+  template: book-theme
